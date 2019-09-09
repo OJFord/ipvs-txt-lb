@@ -1,0 +1,10 @@
+[Unit]
+Description=IPVS load balancer sourcing servers from a TXT record
+Requires=ipvsadm.service
+
+[Service]
+EnvironmentFile=/etc/ipvs-txt-lb.conf
+ExecStart=ipvs-txt-lb
+
+[Install]
+WantedBy=multi-user.target

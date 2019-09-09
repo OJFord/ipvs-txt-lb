@@ -1,0 +1,77 @@
+#!/bin/sh
+set -e
+
+if [ -z "$IPVSTXTLB_ADDRESS" ]; then
+    >&2 echo IPVSTXTLB_ADDRESS not set, must be set to IP:PORT to use for load balancer
+    exit 1
+fi
+
+if [ -z "$IPVSTXTLB_POLL_INTERVAL" ]; then
+    >&2 echo IPVSTXTLB_POLL_INTERVAL not set, must be set to num seconds between polls
+    exit 1
+fi
+
+if [ -z "$IPVSTXTLB_RECORD" ]; then
+    >&2 echo IPVSTXTLB_RECORD not set, must be set to location of the TXT record
+    exit 1
+fi
+
+get_hosts() {
+    dig -t TXT +short "$IPVSTXTLB_RECORD" | sed -e 's/"//g' -e 's/;/\n/g'
+}
+
+update_hosts() {
+    >&2 echo Updating hosts
+
+    current="$(ipvsadm --save | tail -n+2 | cut --delimiter=' ' --field=5 | cut --delimiter=':' --field=1)"
+    next="$(get_hosts)"
+
+    for host in $next; do
+        if ! echo "$current" | grep "$host" - >/dev/null; then
+            >&2 echo "Discovered new host: $host"
+            ipvsadm --add-server --tcp-service "$IPVSTXTLB_ADDRESS" --real-server "$host" --masquerading
+            >&2 echo "Added $host to pool"
+	fi
+    done
+
+    for host in $current; do
+        if ! echo "$next" | grep "$host" - >/dev/null; then
+            >&2 echo "Removing host: $host"
+            ipvsadm --delete-server --tcp-service "$IPVSTXTLB_ADDRESS" --real-server "$host"
+	    >&2 echo "Removed $host from pool"
+	fi
+    done
+
+    >&2 echo Hosts up to date
+}
+
+start_lb() {
+    >&2 echo "Starting on $IPVSTXTLB_ADDRESS"
+    ipvsadm --add-service --tcp-service "$IPVSTXTLB_ADDRESS" --scheduler rr
+}
+
+stop_lb() {
+    >&2 echo "Stopping $IPVVSTXTLB_ADDRESS"
+    ipvsadm --delete-service --tcp-service "$IPVSTXTLB_ADDRESS"
+    return 0
+}
+
+check_err_exit() {
+    exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        >&2 echo Error, exiting
+        stop_lb || true
+	exit $exit_code
+    fi
+    exit 0
+}
+
+trap 'check_err_exit' EXIT
+trap 'stop_lb' TERM
+
+start_lb
+
+while true; do
+    update_hosts
+    sleep "$IPVSTXTLB_POLL_INTERVAL"
+done
