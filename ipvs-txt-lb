@@ -27,7 +27,7 @@ update_hosts() {
     next="$(get_hosts)"
 
     for host in $next; do
-        if ! echo "$current" | grep "$host" - >/dev/null; then
+        if ! echo "$current" | grep "$host" - >/dev/null && [ "$host" != "$(hostname)" ]; then
             >&2 echo "Discovered new host: $host"
             ipvsadm --add-server --tcp-service "$IPVSTXTLB_ADDRESS" --real-server "$host" --masquerading
             >&2 echo "Added $host to pool"
